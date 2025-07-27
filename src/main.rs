@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 use clap::Parser;
 use colorous::Gradient;
-use image::{ImageBuffer, Rgb, RgbImage};
+use image::{ImageBuffer, RgbaImage, Rgba};
 use std::io::BufRead;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
@@ -57,9 +57,6 @@ pub struct Args {
     #[arg(short = 'o', help = "Output filename", default_value = "map.png")]
     output: String,
 
-    #[arg(short = 'r', help = "Reverse; white background, black text")]
-    reverse: bool,
-
     #[arg(
         short = 'z',
         help = "Address space bits per pixel",
@@ -78,7 +75,6 @@ struct Heatmap {
     max_value: Option<f64>,
     accumulate: bool,
     bits_per_pixel: u8,
-    background_color: Rgb<u8>,
     colour_scale: &'static Gradient,
 }
 
@@ -89,7 +85,6 @@ impl Heatmap {
         max_value: Option<f64>,
         accumulate: bool,
         bits_per_pixel: u8,
-        background_color: Rgb<u8>,
         colour_scale: &'static Gradient,
     ) -> Self {
         let buffer = vec![vec![0i32; IMAGE_SIZE as usize]; IMAGE_SIZE as usize];
@@ -101,7 +96,6 @@ impl Heatmap {
             max_value,
             accumulate,
             bits_per_pixel,
-            background_color,
             colour_scale,
         }
     }
@@ -250,8 +244,8 @@ impl Heatmap {
         Ok(())
     }
 
-    fn create_image(&self) -> Result<RgbImage, &'static str> {
-        let mut image = ImageBuffer::from_pixel(IMAGE_SIZE, IMAGE_SIZE, self.background_color);
+    fn create_image(&self) -> Result<RgbaImage, &'static str> {
+        let mut image = ImageBuffer::from_pixel(IMAGE_SIZE, IMAGE_SIZE, Rgba([0, 0, 0, 0]));
         let domain = self.calculate_domain()?;
 
         for y in 0..IMAGE_SIZE {
@@ -259,10 +253,8 @@ impl Heatmap {
                 let value = self.buffer[y as usize][x as usize];
 
                 if let Some(scaled) = domain.scale(value.into()) {
-                    let rgb = self.colour_scale.eval_continuous(scaled).as_array();
-                    image.put_pixel(x, y, Rgb(rgb));
-                } else {
-                    image.put_pixel(x, y, self.background_color);
+                    let (r, g, b) = self.colour_scale.eval_continuous(scaled).as_tuple();
+                    image.put_pixel(x, y, Rgba([r, g, b, 255]));
                 }
             }
         }
@@ -301,13 +293,6 @@ fn main() -> Result<()> {
         _ => &colorous::MAGMA, // Default to MAGMA
     };
 
-    // Determine background color
-    let background_color = if args.reverse {
-        Rgb([255, 255, 255])
-    } else {
-        Rgb([0, 0, 0])
-    };
-
     // Handle backward compatibility with old log parameters
     let curve = if args.log_min.is_some() || args.log_max.is_some() {
         DomainType::Logarithmic
@@ -321,7 +306,6 @@ fn main() -> Result<()> {
         args.max_value,
         args.accumulate,
         args.bits_per_pixel,
-        background_color,
         colour_scale,
     );
     heatmap.process_input()?;
