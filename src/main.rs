@@ -54,7 +54,7 @@ pub struct Args {
     #[arg(short = 'v', long = "verbose", help = "Verbose output (-v for debug, -vv for trace)", action = clap::ArgAction::Count)]
     verbose: u8,
 
-    #[arg(short = 'o', help = "Output filename", default_value = "map.png")]
+    #[arg(help = "Output filename")]
     output: String,
 
     #[arg(
