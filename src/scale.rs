@@ -14,7 +14,10 @@ impl FromStr for DomainType {
         match s.to_lowercase().as_str() {
             "linear" => Ok(DomainType::Linear),
             "logarithmic" | "log" => Ok(DomainType::Logarithmic),
-            _ => Err(format!("Invalid curve type: {}. Use 'linear' or 'logarithmic'", s)),
+            _ => Err(format!(
+                "Invalid curve type: {}. Use 'linear' or 'logarithmic'",
+                s
+            )),
         }
     }
 }
@@ -35,11 +38,21 @@ pub struct ScaleDomain {
 }
 
 impl ScaleDomain {
-    pub fn new(domain_type: DomainType, min_value: f64, max_value: f64) -> Result<Self, &'static str> {
+    pub fn new(
+        domain_type: DomainType,
+        min_value: f64,
+        max_value: f64,
+    ) -> Result<Self, &'static str> {
         if min_value < 0.0 || max_value <= min_value {
-            return Err("Min value must be greater than 0 and max value must be greater than min value");
+            return Err(
+                "Min value must be greater than 0 and max value must be greater than min value",
+            );
         }
-        Ok(Self { domain_type, min_value, max_value })
+        Ok(Self {
+            domain_type,
+            min_value,
+            max_value,
+        })
     }
 
     pub fn scale(&self, value: f64) -> Option<f64> {
@@ -53,7 +66,7 @@ impl ScaleDomain {
         if value <= self.min_value {
             None
         } else if value >= self.max_value {
-            Some(self.max_value - self.min_value)
+            Some(1.0)
         } else {
             Some((value - self.min_value) / (self.max_value - self.min_value))
         }
