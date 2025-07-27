@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, anyhow};
 use clap::Parser;
+use colorous::Gradient;
 use image::{ImageBuffer, Rgb, RgbImage};
 use std::io::BufRead;
 use std::net::Ipv4Addr;
@@ -65,6 +66,9 @@ pub struct Args {
         default_value = "8"
     )]
     bits_per_pixel: u8,
+
+    #[arg(long, help = "Colour scale to use", default_value = "magma")]
+    colour_scale: String,
 }
 
 struct Heatmap {
@@ -75,33 +79,30 @@ struct Heatmap {
     accumulate: bool,
     bits_per_pixel: u8,
     background_color: Rgb<u8>,
+    colour_scale: &'static Gradient,
 }
 
 impl Heatmap {
-    fn new(args: Args) -> Self {
-        let background_color = if args.reverse {
-            Rgb([255, 255, 255])
-        } else {
-            Rgb([0, 0, 0])
-        };
-
+    fn new(
+        curve: DomainType,
+        min_value: Option<f64>,
+        max_value: Option<f64>,
+        accumulate: bool,
+        bits_per_pixel: u8,
+        background_color: Rgb<u8>,
+        colour_scale: &'static Gradient,
+    ) -> Self {
         let buffer = vec![vec![0i32; IMAGE_SIZE as usize]; IMAGE_SIZE as usize];
-
-        // Handle backward compatibility with old log parameters
-        let curve = if args.log_min.is_some() || args.log_max.is_some() {
-            DomainType::Logarithmic
-        } else {
-            args.curve
-        };
 
         Self {
             buffer,
             curve,
-            min_value: args.min_value,
-            max_value: args.max_value,
-            accumulate: args.accumulate,
-            bits_per_pixel: args.bits_per_pixel,
+            min_value,
+            max_value,
+            accumulate,
+            bits_per_pixel,
             background_color,
+            colour_scale,
         }
     }
 
@@ -258,7 +259,7 @@ impl Heatmap {
                 let value = self.buffer[y as usize][x as usize];
 
                 if let Some(scaled) = domain.scale(value.into()) {
-                    let rgb = colorous::CIVIDIS.eval_continuous(scaled).as_array();
+                    let rgb = self.colour_scale.eval_continuous(scaled).as_array();
                     image.put_pixel(x, y, Rgb(rgb));
                 } else {
                     image.put_pixel(x, y, self.background_color);
@@ -292,8 +293,37 @@ fn main() -> Result<()> {
         .init();
 
     let output_file = args.output.clone();
+    
+    // Select colour scale based on command line argument
+    let colour_scale = match args.colour_scale.as_str() {
+        "accessible" | "cividis" => &colorous::CIVIDIS,
+        "magma" => &colorous::MAGMA,
+        _ => &colorous::MAGMA, // Default to MAGMA
+    };
 
-    let mut heatmap = Heatmap::new(args);
+    // Determine background color
+    let background_color = if args.reverse {
+        Rgb([255, 255, 255])
+    } else {
+        Rgb([0, 0, 0])
+    };
+
+    // Handle backward compatibility with old log parameters
+    let curve = if args.log_min.is_some() || args.log_max.is_some() {
+        DomainType::Logarithmic
+    } else {
+        args.curve
+    };
+
+    let mut heatmap = Heatmap::new(
+        curve,
+        args.min_value,
+        args.max_value,
+        args.accumulate,
+        args.bits_per_pixel,
+        background_color,
+        colour_scale,
+    );
     heatmap.process_input()?;
     heatmap.save(&output_file)?;
 
