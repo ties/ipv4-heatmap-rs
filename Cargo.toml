@@ -7,11 +7,10 @@ description = "Generate Hilbert curve heatmap of IP space"
 license = "GPL-2.0"
 
 [dependencies]
-image = "0.24"
+image = { version = "0.25.6", features = ["png"], default-features = false }
 clap = { version = "4.0", features = ["derive"] }
-thiserror = "1.0"
 anyhow = "1.0"
 log = "0.4.27"
 env_logger = "0.11.8"
-ipnet = "2.9"
+ipnet = "2.11"
 colorous = "1.0.16"
