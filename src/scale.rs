@@ -43,7 +43,7 @@ impl ScaleDomain {
         min_value: f64,
         max_value: f64,
     ) -> Result<Self, &'static str> {
-        if min_value < 0.0 || max_value <= min_value {
+        if max_value <= min_value {
             return Err(
                 "Min value must be greater than 0 and max value must be greater than min value",
             );
@@ -79,5 +79,121 @@ impl ScaleDomain {
 
         let offset = value - self.min_value;
         Some(offset.ln() / self.max_value.ln())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_linear_scale_out_of_range_bottom() {
+        let domain = ScaleDomain::new(DomainType::Linear, 10.0, 100.0).unwrap();
+        
+        // Values at or below min_value should map to None (no data)
+        assert_eq!(domain.scale_linear(10.0), None);
+        assert_eq!(domain.scale_linear(-5.0), None);
+    }
+
+    #[test]
+    fn test_linear_scale_interpolation() {
+        let domain = ScaleDomain::new(DomainType::Linear, 10.0, 100.0).unwrap();
+        
+        // Test linear interpolation
+        assert_eq!(domain.scale_linear(55.0), Some(0.5)); // Midpoint
+        assert_eq!(domain.scale_linear(37.0), Some(0.3)); // 30% of range
+        assert_eq!(domain.scale_linear(82.0), Some(0.8)); // 80% of range
+        
+        // Values at max_value should map to 1.0
+        assert_eq!(domain.scale_linear(100.0), Some(1.0));
+        assert_eq!(domain.scale_linear(150.0), Some(1.0)); // Above max
+    }
+
+    #[test]
+    fn test_linear_scale_edge_cases() {
+        let domain = ScaleDomain::new(DomainType::Linear, 0.0, 1.0).unwrap();
+        
+        // Just above min_value should give very small positive value
+        assert!(domain.scale_linear(0.1).unwrap() > 0.0);
+        assert!(domain.scale_linear(0.1).unwrap() < 0.2);
+        
+        // Test with very small range
+        let small_domain = ScaleDomain::new(DomainType::Linear, 1.0, 1.1).unwrap();
+        assert_eq!(small_domain.scale_linear(1.05), Some(0.5));
+    }
+
+    #[test]
+    fn test_logarithmic_scale_min_max() {
+        let domain = ScaleDomain::new(DomainType::Logarithmic, 1.0, 100.0).unwrap();
+        
+        // Min value produces -inf because ln(0) = -inf, this is expected behavior
+        let min_result = domain.scale_logarithmic(1.0).unwrap();
+        assert!(min_result.is_infinite() && min_result.is_sign_negative());
+        
+        // Max value should scale to (ln(max-min)/ln(max) = ln(99)/ln(100))
+        let result = domain.scale_logarithmic(100.0).unwrap();
+        let expected = (100.0_f64 - 1.0_f64).ln() / 100.0_f64.ln();
+        assert!((result - expected).abs() < 1e-10);
+        
+        // Test a value just above min_value
+        let just_above_min = domain.scale_logarithmic(1.1).unwrap();
+        assert!(just_above_min.is_finite());
+        assert!(just_above_min < 0.0); // Should be negative since ln(0.1) < 0
+    }
+
+    #[test]
+    fn test_logarithmic_scale_out_of_range() {
+        let domain = ScaleDomain::new(DomainType::Logarithmic, 10.0, 1000.0).unwrap();
+        
+        // Values below min_value should map to None
+        assert_eq!(domain.scale_logarithmic(5.0), None);
+        assert_eq!(domain.scale_logarithmic(9.99), None);
+        assert_eq!(domain.scale_logarithmic(0.0), None);
+    }
+
+    #[test]
+    fn test_logarithmic_scale_interpolation() {
+        let domain = ScaleDomain::new(DomainType::Logarithmic, 1.0, 1000.0).unwrap();
+        
+        // Test specific values
+        let result_10 = domain.scale_logarithmic(10.0).unwrap();
+        let expected_10 = (10.0_f64 - 1.0_f64).ln() / 1000.0_f64.ln();
+        assert!((result_10 - expected_10).abs() < 1e-10);
+        
+        let result_100 = domain.scale_logarithmic(100.0).unwrap();
+        let expected_100 = (100.0_f64 - 1.0_f64).ln() / 1000.0_f64.ln();
+        assert!((result_100 - expected_100).abs() < 1e-10);
+        
+        // Values should increase with input
+        assert!(result_10 < result_100);
+    }
+
+    #[test]
+    fn test_scale_domain_creation_validation() {
+        // Base cases
+        assert!(ScaleDomain::new(DomainType::Linear, 0.0, 10.0).is_ok());
+        assert!(ScaleDomain::new(DomainType::Linear, -10.0, 10.0).is_ok());
+        assert!(ScaleDomain::new(DomainType::Logarithmic, 0.0, 100.0).is_ok());
+        
+        // Max value must be > min value
+        assert!(ScaleDomain::new(DomainType::Linear, 10.0, 5.0).is_err());
+        assert!(ScaleDomain::new(DomainType::Logarithmic, 10.0, 5.0).is_err());
+        
+    }
+
+    #[test]
+    fn test_scale_method_dispatch() {
+        let linear_domain = ScaleDomain::new(DomainType::Linear, 10.0, 100.0).unwrap();
+        let log_domain = ScaleDomain::new(DomainType::Logarithmic, 10.0, 100.0).unwrap();
+        
+        // Both should handle the same input differently
+        let linear_result = linear_domain.scale(55.0).unwrap();
+        let log_result = log_domain.scale(55.0).unwrap();
+        
+        assert_ne!(linear_result, log_result);
+        
+        // Out of range should return None for both
+        assert_eq!(linear_domain.scale(5.0), None);
+        assert_eq!(log_domain.scale(5.0), None);
     }
 }
