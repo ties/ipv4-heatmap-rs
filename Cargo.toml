@@ -6,11 +6,22 @@ authors = ["Ties de Kock <ties@tiesdekock.nl>"]
 description = "Generate Hilbert curve heatmap of IP space"
 license = "GPL-2.0"
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 image = { version = "0.25.6", features = ["png"], default-features = false }
-clap = { version = "4.0", features = ["derive"] }
+clap = { version = "4.0", features = ["derive"], optional = true }
 anyhow = "1.0"
 log = "0.4.27"
-env_logger = "0.11.8"
+env_logger = { version = "0.11.8", optional = true }
 ipnet = "2.11"
 colorous = "1.0.16"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+console_error_panic_hook = "0.1"
+
+[features]
+default = ["cli"]
+cli = ["clap", "env_logger"]

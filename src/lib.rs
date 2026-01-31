@@ -8,6 +8,9 @@ use std::str::FromStr;
 mod hilbert;
 mod scale;
 
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;
+
 use hilbert::hilbert_d2xy;
 use ipnet::Ipv4Net;
 use scale::ScaleDomain;
@@ -136,10 +139,7 @@ impl Heatmap {
         ScaleDomain::new(self.curve, min_value, max_value)
     }
 
-    pub fn process_input(&mut self) -> Result<()> {
-        let stdin = std::io::stdin();
-        let reader = stdin.lock();
-
+    fn process_input_from_reader<R: BufRead>(&mut self, reader: R) -> Result<()> {
         for (line_num, line) in reader.lines().enumerate() {
             let line = line.context("Failed to read line")?;
             let parts: Vec<&str> = line.split_whitespace().collect();
@@ -191,6 +191,46 @@ impl Heatmap {
         }
 
         Ok(())
+    }
+
+    pub fn process_input_from_string(&mut self, input: &str) -> Result<()> {
+        use std::io::Cursor;
+        let cursor = Cursor::new(input);
+        self.process_input_from_reader(cursor)
+    }
+
+    pub fn process_input(&mut self) -> Result<()> {
+        let stdin = std::io::stdin();
+        let reader = stdin.lock();
+        self.process_input_from_reader(reader)
+    }
+
+    pub fn get_rgba_data(&self) -> Result<Vec<u8>> {
+        let domain = self.calculate_domain().map_err(|e| anyhow!(e))?;
+        let size = (IMAGE_SIZE * IMAGE_SIZE * 4) as usize;
+        let mut rgba_data = Vec::with_capacity(size);
+
+        for y in 0..IMAGE_SIZE {
+            for x in 0..IMAGE_SIZE {
+                let value = self.buffer[y as usize][x as usize];
+
+                if let Some(scaled) = domain.scale(value.into()) {
+                    let (r, g, b) = self.colour_scale.eval_continuous(scaled).as_tuple();
+                    rgba_data.push(r);
+                    rgba_data.push(g);
+                    rgba_data.push(b);
+                    rgba_data.push(255);
+                } else {
+                    // Transparent pixel for no data
+                    rgba_data.push(0);
+                    rgba_data.push(0);
+                    rgba_data.push(0);
+                    rgba_data.push(0);
+                }
+            }
+        }
+
+        Ok(rgba_data)
     }
 
     fn create_image(&self) -> Result<RgbaImage, &'static str> {

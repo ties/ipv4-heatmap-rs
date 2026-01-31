@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPv4 Heatmap - AS Prefix Visualizer</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>IPv4 Heatmap Visualizer</h1>
+            <p>Visualize AS network prefixes using Hilbert curve heatmaps</p>
+        </header>
+
+        <main>
+            <div class="controls">
+                <div class="input-group">
+                    <label for="as-number">AS Number:</label>
+                    <input
+                        type="text"
+                        id="as-number"
+                        placeholder="e.g., 3333 or AS3333"
+                        value="3333"
+                    >
+                </div>
+
+                <div class="input-group">
+                    <label for="curve-type">Curve Type:</label>
+                    <select id="curve-type">
+                        <option value="linear">Linear</option>
+                        <option value="logarithmic" selected>Logarithmic</option>
+                    </select>
+                </div>
+
+                <div class="input-group">
+                    <label for="colour-scale">Color Scale:</label>
+                    <select id="colour-scale">
+                        <option value="magma" selected>Magma</option>
+                        <option value="inferno">Inferno</option>
+                        <option value="plasma">Plasma</option>
+                        <option value="viridis">Viridis</option>
+                        <option value="cividis">Cividis</option>
+                        <option value="turbo">Turbo</option>
+                        <option value="warm">Warm</option>
+                        <option value="cool">Cool</option>
+                    </select>
+                </div>
+
+                <div class="input-group">
+                    <label for="bits-per-pixel">Bits per Pixel (8-24):</label>
+                    <input
+                        type="number"
+                        id="bits-per-pixel"
+                        value="8"
+                        min="8"
+                        max="24"
+                        title="Each pixel represents 2^N IP addresses. Minimum 8 (256 IPs/pixel) for 4096×4096 image"
+                    >
+                    <small style="color: #666; font-size: 0.85em;">8 = 256 IPs/pixel (default)</small>
+                </div>
+
+                <div class="checkbox-group">
+                    <label>
+                        <input type="checkbox" id="accumulate" checked>
+                        Accumulate values
+                    </label>
+                </div>
+
+                <button id="generate-btn" class="primary-btn">Generate Heatmap</button>
+            </div>
+
+            <div id="loading" class="loading hidden">
+                <div class="spinner"></div>
+                <p>Loading WASM module...</p>
+            </div>
+
+            <div id="processing" class="loading hidden">
+                <div class="spinner"></div>
+                <p>Generating heatmap...</p>
+            </div>
+
+            <div id="error" class="error hidden"></div>
+
+            <div id="info" class="info hidden"></div>
+
+            <div id="canvas-container" class="canvas-container hidden">
+                <canvas id="heatmap-canvas" width="4096" height="4096"></canvas>
+                <div class="canvas-controls">
+                    <button id="download-btn" class="secondary-btn">Download PNG</button>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>Powered by WebAssembly | Data from <a href="https://stat.ripe.net/" target="_blank">RIPEstat</a></p>
+        </footer>
+    </div>
+
+    <script type="module" src="app.js"></script>
+</body>
+</html>

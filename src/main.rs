@@ -1,6 +1,13 @@
 use anyhow::Result;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use ip_heatmap::{Heatmap, DomainType};
+
+#[derive(Clone, Debug, ValueEnum)]
+pub enum ColourScale {
+    Accessible,
+    Cividis,
+    Magma,
+}
 
 #[derive(Parser)]
 #[command(name = "ip-heatmap")]
@@ -52,7 +59,7 @@ pub struct Args {
     bits_per_pixel: u8,
 
     #[arg(long, help = "Colour scale to use", default_value = "magma")]
-    colour_scale: String,
+    colour_scale: ColourScale,
 }
 
 fn main() -> Result<()> {
@@ -72,10 +79,9 @@ fn main() -> Result<()> {
     let output_file = args.output.clone();
     
     // Select colour scale based on command line argument
-    let colour_scale = match args.colour_scale.as_str() {
-        "accessible" | "cividis" => &colorous::CIVIDIS,
-        "magma" => &colorous::MAGMA,
-        _ => &colorous::MAGMA, // Default to MAGMA
+    let colour_scale = match args.colour_scale {
+        ColourScale::Accessible | ColourScale::Cividis => &colorous::CIVIDIS,
+        ColourScale::Magma => &colorous::MAGMA,
     };
 
     // Handle backward compatibility with old log parameters
