@@ -191,11 +191,13 @@ main {
 #heatmap-canvas {
     max-width: 100%;
     height: auto;
+    background-color: black;
     border: 2px solid #e0e0e0;
     border-radius: 8px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
     display: block;
     margin: 0 auto;
+    image-rendering: crisp-edges;
 }
 
 .canvas-controls {
