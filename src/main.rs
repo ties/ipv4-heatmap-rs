@@ -60,6 +60,9 @@ pub struct Args {
 
     #[arg(long, help = "Colour scale to use", default_value = "magma")]
     colour_scale: ColourScale,
+
+    #[arg(long, help = "Categorical mode: discrete colours per category (comma-delimited input)")]
+    categorical: bool,
 }
 
 fn main() -> Result<()> {
@@ -98,6 +101,7 @@ fn main() -> Result<()> {
         args.accumulate,
         args.bits_per_pixel,
         colour_scale,
+        args.categorical,
     );
     heatmap.process_input()?;
     heatmap.save(&output_file)?;

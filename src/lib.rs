@@ -20,6 +20,18 @@ pub use scale::DomainType;
 
 const IMAGE_SIZE: u32 = 4096;
 
+/// ColorBrewer2 Accent categorical palette (wraps for categories > 7)
+const CATEGORICAL_PALETTE: [[u8; 3]; 8] = [
+    [127, 201, 127],  // green
+    [190, 174, 212],  // purple
+    [253, 192, 134],  // orange
+    [255, 255, 153],  // yellow
+    [56, 108, 176],   // blue
+    [240, 2, 127],    // pink
+    [191, 91, 23],    // brown
+    [102, 102, 102],  // gray
+];
+
 pub struct Heatmap {
     buffer: Vec<Vec<i32>>,
     curve: scale::DomainType,
@@ -28,6 +40,7 @@ pub struct Heatmap {
     accumulate: bool,
     bits_per_pixel: u8,
     colour_scale: &'static Gradient,
+    categorical: bool,
 }
 
 impl Heatmap {
@@ -38,8 +51,11 @@ impl Heatmap {
         accumulate: bool,
         bits_per_pixel: u8,
         colour_scale: &'static Gradient,
+        categorical: bool,
     ) -> Self {
-        let buffer = vec![vec![0i32; IMAGE_SIZE as usize]; IMAGE_SIZE as usize];
+        // Use -1 as sentinel for "no data" in categorical mode
+        let init_value = if categorical { -1 } else { 0 };
+        let buffer = vec![vec![init_value; IMAGE_SIZE as usize]; IMAGE_SIZE as usize];
 
         Self {
             buffer,
@@ -49,6 +65,7 @@ impl Heatmap {
             accumulate,
             bits_per_pixel,
             colour_scale,
+            categorical,
         }
     }
 
@@ -90,15 +107,19 @@ impl Heatmap {
             let overlap_last = last_ip.min(pixel_last_ip);
 
             if overlap_first <= overlap_last {
-                // Calculate how many IPs from the CIDR block overlap with this pixel
-                let overlap_count = overlap_last - overlap_first + 1;
+                let paint_value = if self.categorical {
+                    // In categorical mode, paint the raw category value (no scaling)
+                    value
+                } else {
+                    // Calculate how many IPs from the CIDR block overlap with this pixel
+                    let overlap_count = overlap_last - overlap_first + 1;
 
-                // Scale the value by the proportion of IPs in this pixel that come from the CIDR block
-                let scaled_value =
-                    (value as f64 * overlap_count as f64 / ips_per_pixel as f64) as i32;
+                    // Scale the value by the proportion of IPs in this pixel that come from the CIDR block
+                    (value as f64 * overlap_count as f64 / ips_per_pixel as f64) as i32
+                };
 
                 if let Some((x, y)) = self.ip_to_xy(pixel_first_ip as u32) {
-                    self.paint_pixel(x, y, scaled_value);
+                    self.paint_pixel(x, y, paint_value);
                 }
             }
         }
@@ -142,7 +163,11 @@ impl Heatmap {
     fn process_input_from_reader<R: BufRead>(&mut self, reader: R) -> Result<()> {
         for (line_num, line) in reader.lines().enumerate() {
             let line = line.context("Failed to read line")?;
-            let parts: Vec<&str> = line.split_whitespace().collect();
+            let parts: Vec<&str> = line
+                .split(|c: char| c == ',' || c.is_whitespace())
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .collect();
 
             if parts.is_empty() {
                 continue;
@@ -206,26 +231,33 @@ impl Heatmap {
     }
 
     pub fn get_rgba_data(&self) -> Result<Vec<u8>> {
-        let domain = self.calculate_domain().map_err(|e| anyhow!(e))?;
         let size = (IMAGE_SIZE * IMAGE_SIZE * 4) as usize;
         let mut rgba_data = Vec::with_capacity(size);
 
-        for y in 0..IMAGE_SIZE {
-            for x in 0..IMAGE_SIZE {
-                let value = self.buffer[y as usize][x as usize];
+        if self.categorical {
+            for y in 0..IMAGE_SIZE {
+                for x in 0..IMAGE_SIZE {
+                    let value = self.buffer[y as usize][x as usize];
+                    if value < 0 {
+                        rgba_data.extend_from_slice(&[0, 0, 0, 0]);
+                    } else {
+                        let [r, g, b] = CATEGORICAL_PALETTE[value as usize % CATEGORICAL_PALETTE.len()];
+                        rgba_data.extend_from_slice(&[r, g, b, 255]);
+                    }
+                }
+            }
+        } else {
+            let domain = self.calculate_domain().map_err(|e| anyhow!(e))?;
+            for y in 0..IMAGE_SIZE {
+                for x in 0..IMAGE_SIZE {
+                    let value = self.buffer[y as usize][x as usize];
 
-                if let Some(scaled) = domain.scale(value.into()) {
-                    let (r, g, b) = self.colour_scale.eval_continuous(scaled).as_tuple();
-                    rgba_data.push(r);
-                    rgba_data.push(g);
-                    rgba_data.push(b);
-                    rgba_data.push(255);
-                } else {
-                    // Transparent pixel for no data
-                    rgba_data.push(0);
-                    rgba_data.push(0);
-                    rgba_data.push(0);
-                    rgba_data.push(0);
+                    if let Some(scaled) = domain.scale(value.into()) {
+                        let (r, g, b) = self.colour_scale.eval_continuous(scaled).as_tuple();
+                        rgba_data.extend_from_slice(&[r, g, b, 255]);
+                    } else {
+                        rgba_data.extend_from_slice(&[0, 0, 0, 0]);
+                    }
                 }
             }
         }
@@ -235,15 +267,27 @@ impl Heatmap {
 
     fn create_image(&self) -> Result<RgbaImage, &'static str> {
         let mut image = ImageBuffer::from_pixel(IMAGE_SIZE, IMAGE_SIZE, Rgba([0, 0, 0, 0]));
-        let domain = self.calculate_domain()?;
 
-        for y in 0..IMAGE_SIZE {
-            for x in 0..IMAGE_SIZE {
-                let value = self.buffer[y as usize][x as usize];
+        if self.categorical {
+            for y in 0..IMAGE_SIZE {
+                for x in 0..IMAGE_SIZE {
+                    let value = self.buffer[y as usize][x as usize];
+                    if value >= 0 {
+                        let [r, g, b] = CATEGORICAL_PALETTE[value as usize % CATEGORICAL_PALETTE.len()];
+                        image.put_pixel(x, y, Rgba([r, g, b, 255]));
+                    }
+                }
+            }
+        } else {
+            let domain = self.calculate_domain()?;
+            for y in 0..IMAGE_SIZE {
+                for x in 0..IMAGE_SIZE {
+                    let value = self.buffer[y as usize][x as usize];
 
-                if let Some(scaled) = domain.scale(value.into()) {
-                    let (r, g, b) = self.colour_scale.eval_continuous(scaled).as_tuple();
-                    image.put_pixel(x, y, Rgba([r, g, b, 255]));
+                    if let Some(scaled) = domain.scale(value.into()) {
+                        let (r, g, b) = self.colour_scale.eval_continuous(scaled).as_tuple();
+                        image.put_pixel(x, y, Rgba([r, g, b, 255]));
+                    }
                 }
             }
         }

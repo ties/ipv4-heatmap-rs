@@ -15,7 +15,21 @@
 
         <main>
             <div class="controls">
-                <div class="input-group">
+                <div class="data-source-toggle">
+                    <label class="toggle-label">Data Source:</label>
+                    <div class="radio-group">
+                        <label>
+                            <input type="radio" name="data-source" value="asn" checked>
+                            AS Number
+                        </label>
+                        <label>
+                            <input type="radio" name="data-source" value="data">
+                            File / Paste Data
+                        </label>
+                    </div>
+                </div>
+
+                <div class="input-group" id="asn-input-group">
                     <label for="as-number">AS Number:</label>
                     <input
                         type="text"
@@ -23,6 +37,16 @@
                         placeholder="e.g., 16509 or AS16509"
                         value="16509"
                     >
+                </div>
+
+                <div class="data-input-group hidden" id="data-input-group">
+                    <label>Data Input:</label>
+                    <input type="file" id="data-file" accept=".txt,.csv,.tsv">
+                    <textarea
+                        id="data-textarea"
+                        placeholder="Paste data here, e.g.&#10;1.0.0.0/24 5&#10;2.0.0.0/16 10&#10;&#10;Or for categorical mode:&#10;1.0.0.0/24,1&#10;2.0.0.0/16,2"
+                        rows="6"
+                    ></textarea>
                 </div>
 
                 <div class="input-group">
@@ -64,6 +88,13 @@
                     <label>
                         <input type="checkbox" id="accumulate" checked>
                         Accumulate values
+                    </label>
+                </div>
+
+                <div class="checkbox-group">
+                    <label>
+                        <input type="checkbox" id="categorical">
+                        Categorical mode
                     </label>
                 </div>
 

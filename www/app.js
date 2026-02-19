@@ -8,6 +8,7 @@ const elements = {
     colourScaleSelect: document.getElementById('colour-scale'),
     bitsPerPixelInput: document.getElementById('bits-per-pixel'),
     accumulateCheckbox: document.getElementById('accumulate'),
+    categoricalCheckbox: document.getElementById('categorical'),
     generateBtn: document.getElementById('generate-btn'),
     downloadBtn: document.getElementById('download-btn'),
     canvas: document.getElementById('heatmap-canvas'),
@@ -16,6 +17,11 @@ const elements = {
     processingDiv: document.getElementById('processing'),
     errorDiv: document.getElementById('error'),
     infoDiv: document.getElementById('info'),
+    dataSourceRadios: document.querySelectorAll('input[name="data-source"]'),
+    asnInputGroup: document.getElementById('asn-input-group'),
+    dataInputGroup: document.getElementById('data-input-group'),
+    dataFile: document.getElementById('data-file'),
+    dataTextarea: document.getElementById('data-textarea'),
 };
 
 async function initWasm() {
@@ -87,6 +93,22 @@ async function fetchASPrefixes(asn) {
     }
 }
 
+function getSelectedDataSource() {
+    for (const radio of elements.dataSourceRadios) {
+        if (radio.checked) return radio.value;
+    }
+    return 'asn';
+}
+
+function readFileAsText(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('Failed to read file'));
+        reader.readAsText(file);
+    });
+}
+
 async function generateHeatmap() {
     if (!wasmReady) {
         showError('WASM module not loaded yet. Please wait...');
@@ -99,32 +121,54 @@ async function generateHeatmap() {
     elements.canvasContainer.classList.add('hidden');
 
     try {
-        // Get input values
-        const asNumber = elements.asNumberInput.value.trim();
-        if (!asNumber) {
-            throw new Error('Please enter an AS number');
-        }
-
         const curveType = elements.curveTypeSelect.value;
         const colourScale = elements.colourScaleSelect.value;
         const bitsPerPixel = parseInt(elements.bitsPerPixelInput.value, 10);
         const accumulate = elements.accumulateCheckbox.checked;
+        const categorical = elements.categoricalCheckbox.checked;
+        const dataSource = getSelectedDataSource();
 
-        // Fetch prefixes from RIPEstat
-        showInfo('Fetching prefixes from RIPEstat API...');
-        const { prefixes, count, asn } = await fetchASPrefixes(asNumber);
+        let inputData;
+        let infoLabel;
 
-        showInfo(`Fetched ${count} IPv4 prefixes for AS${asn}. Generating heatmap...`);
+        if (dataSource === 'asn') {
+            const asNumber = elements.asNumberInput.value.trim();
+            if (!asNumber) {
+                throw new Error('Please enter an AS number');
+            }
+
+            showInfo('Fetching prefixes from RIPEstat API...');
+            const { prefixes, count, asn } = await fetchASPrefixes(asNumber);
+            inputData = prefixes;
+            infoLabel = `AS${asn} (${count} prefixes)`;
+            showInfo(`Fetched ${count} IPv4 prefixes for AS${asn}. Generating heatmap...`);
+        } else {
+            const file = elements.dataFile.files[0];
+            const textareaValue = elements.dataTextarea.value.trim();
+
+            if (file) {
+                inputData = await readFileAsText(file);
+                infoLabel = file.name;
+            } else if (textareaValue) {
+                inputData = textareaValue;
+                infoLabel = 'pasted data';
+            } else {
+                throw new Error('Please upload a file or paste data');
+            }
+
+            showInfo('Generating heatmap...');
+        }
 
         // Generate heatmap using WASM
         const rgbaData = wasmModule.generate_heatmap(
-            prefixes,
+            inputData,
             curveType,
             null, // min_value
             null, // max_value
             accumulate,
             bitsPerPixel,
-            colourScale
+            colourScale,
+            categorical
         );
 
         // Render to canvas
@@ -132,7 +176,7 @@ async function generateHeatmap() {
 
         showProcessing(false);
         elements.canvasContainer.classList.remove('hidden');
-        showInfo(`Successfully generated heatmap for AS${asn} (${count} prefixes)`);
+        showInfo(`Successfully generated heatmap for ${infoLabel}`);
 
     } catch (error) {
         showProcessing(false);
@@ -162,8 +206,9 @@ function downloadPNG() {
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             const asNumber = elements.asNumberInput.value.trim().replace(/^AS/i, '');
+            const label = getSelectedDataSource() === 'asn' ? `AS${asNumber}` : 'custom';
             a.href = url;
-            a.download = `heatmap-AS${asNumber}-${Date.now()}.png`;
+            a.download = `heatmap-${label}-${Date.now()}.png`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -201,6 +246,29 @@ function showInfo(message) {
 function hideInfo() {
     elements.infoDiv.classList.add('hidden');
 }
+
+// Data source toggle
+function updateDataSourceVisibility() {
+    const source = getSelectedDataSource();
+    elements.asnInputGroup.classList.toggle('hidden', source !== 'asn');
+    elements.dataInputGroup.classList.toggle('hidden', source !== 'data');
+}
+
+elements.dataSourceRadios.forEach(radio => {
+    radio.addEventListener('change', updateDataSourceVisibility);
+});
+
+// Clear file input when textarea gets content and vice versa
+elements.dataTextarea.addEventListener('input', () => {
+    if (elements.dataTextarea.value.trim()) {
+        elements.dataFile.value = '';
+    }
+});
+elements.dataFile.addEventListener('change', () => {
+    if (elements.dataFile.files[0]) {
+        elements.dataTextarea.value = '';
+    }
+});
 
 // Event listeners
 elements.generateBtn.addEventListener('click', generateHeatmap);
