@@ -507,4 +507,22 @@ mod tests {
         assert_eq!(img.width(), 16);
         assert_eq!(img.height(), 16);
     }
+
+    #[test]
+    fn test_bits_per_pixel_influences_image_size() {
+        let input = "10.0.0.0/8 1\n";
+        let mut prev_size = None;
+        for bpp in (8..=24).step_by(2) {
+            let mut hm = make_heatmap(bpp);
+            hm.process_input_from_string(input).unwrap();
+            let img = hm.create_image().unwrap();
+            let size = img.width();
+            assert_eq!(size, img.height(), "image should be square at bpp={}", bpp);
+            assert_eq!(size, image_size_for_bpp(bpp), "image dimensions should match image_size_for_bpp at bpp={}", bpp);
+            if let Some(prev) = prev_size {
+                assert!(size < prev, "higher bpp should produce a smaller image: bpp={} gave {}x{}, previous gave {}x{}", bpp, size, size, prev, prev);
+            }
+            prev_size = Some(size);
+        }
+    }
 }
