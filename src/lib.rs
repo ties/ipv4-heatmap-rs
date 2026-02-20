@@ -86,7 +86,22 @@ impl Heatmap {
         }
     }
 
-    fn paint_cidr_range(&mut self, cidr: &Ipv4Net, value: i32) -> Result<()> {
+    pub fn paint_address(&mut self, addr: &Ipv4Addr, value: i32) -> Result<()> {
+        let ips_per_pixel = 1u64 << self.bits_per_pixel;
+
+        let paint_value = if self.categorical {
+            value
+        } else {
+            (value as f64 / ips_per_pixel as f64) as i32
+        };
+
+        if let Some((x, y)) = self.ip_to_xy(u32::from(*addr)) {
+            self.paint_pixel(x, y, paint_value);
+        }
+        Ok(())
+    }
+
+    pub fn paint_cidr_range(&mut self, cidr: &Ipv4Net, value: i32) -> Result<()> {
         // Calculate how many IPs are represented by each pixel
         let ips_per_pixel = 1u64 << self.bits_per_pixel;
 
