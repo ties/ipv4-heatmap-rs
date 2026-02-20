@@ -1,5 +1,5 @@
 use wasm_bindgen::prelude::*;
-use crate::{Heatmap, DomainType};
+use crate::{Heatmap, DomainType, ValueMode};
 use colorous;
 
 #[wasm_bindgen(start)]
@@ -21,7 +21,7 @@ pub fn generate_heatmap(
     accumulate: bool,
     bits_per_pixel: u8,
     colour_scale: &str,
-    categorical: bool,
+    value_mode: &str,
 ) -> Result<Vec<u8>, JsValue> {
     // Parse curve type
     let domain_type = match curve_type.to_lowercase().as_str() {
@@ -57,6 +57,10 @@ pub fn generate_heatmap(
         _ => return Err(JsValue::from_str(&format!("Invalid colour scale: {}. Supported: magma, inferno, plasma, viridis, cividis, turbo, warm, cool", colour_scale))),
     };
 
+    // Parse value mode
+    let value_mode: ValueMode = value_mode.parse()
+        .map_err(|e: String| JsValue::from_str(&e))?;
+
     // Create heatmap
     let mut heatmap = Heatmap::new(
         domain_type,
@@ -65,7 +69,7 @@ pub fn generate_heatmap(
         accumulate,
         bits_per_pixel,
         gradient,
-        categorical,
+        value_mode,
     );
 
     // Process input

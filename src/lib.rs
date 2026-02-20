@@ -18,6 +18,39 @@ use scale::ScaleDomain;
 // Re-export types for public API
 pub use scale::DomainType;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ValueMode {
+    Categorical,
+    Raw,
+    Scaled,
+}
+
+impl std::str::FromStr for ValueMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "categorical" => Ok(ValueMode::Categorical),
+            "raw" => Ok(ValueMode::Raw),
+            "scaled" => Ok(ValueMode::Scaled),
+            _ => Err(format!(
+                "Invalid value mode: {}. Use 'categorical', 'raw', or 'scaled'",
+                s
+            )),
+        }
+    }
+}
+
+impl std::fmt::Display for ValueMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ValueMode::Categorical => write!(f, "categorical"),
+            ValueMode::Raw => write!(f, "raw"),
+            ValueMode::Scaled => write!(f, "scaled"),
+        }
+    }
+}
+
 const IMAGE_SIZE: u32 = 4096;
 
 /// ColorBrewer2 Accent categorical palette (wraps for categories > 7)
@@ -40,7 +73,7 @@ pub struct Heatmap {
     accumulate: bool,
     bits_per_pixel: u8,
     colour_scale: &'static Gradient,
-    categorical: bool,
+    value_mode: ValueMode,
 }
 
 impl Heatmap {
@@ -51,10 +84,13 @@ impl Heatmap {
         accumulate: bool,
         bits_per_pixel: u8,
         colour_scale: &'static Gradient,
-        categorical: bool,
+        value_mode: ValueMode,
     ) -> Self {
         // Use -1 as sentinel for "no data" in categorical mode
-        let init_value = if categorical { -1 } else { 0 };
+        let init_value = match value_mode {
+            ValueMode::Categorical => -1,
+            ValueMode::Raw | ValueMode::Scaled => 0,
+        };
         let buffer = vec![vec![init_value; IMAGE_SIZE as usize]; IMAGE_SIZE as usize];
 
         Self {
@@ -65,7 +101,7 @@ impl Heatmap {
             accumulate,
             bits_per_pixel,
             colour_scale,
-            categorical,
+            value_mode,
         }
     }
 
@@ -87,12 +123,12 @@ impl Heatmap {
     }
 
     pub fn paint_address(&mut self, addr: &Ipv4Addr, value: i32) -> Result<()> {
-        let ips_per_pixel = 1u64 << self.bits_per_pixel;
-
-        let paint_value = if self.categorical {
-            value
-        } else {
-            (value as f64 / ips_per_pixel as f64) as i32
+        let paint_value = match self.value_mode {
+            ValueMode::Categorical | ValueMode::Raw => value,
+            ValueMode::Scaled => {
+                let ips_per_pixel = 1u64 << self.bits_per_pixel;
+                (value as f64 / ips_per_pixel as f64) as i32
+            }
         };
 
         if let Some((x, y)) = self.ip_to_xy(u32::from(*addr)) {
@@ -122,15 +158,12 @@ impl Heatmap {
             let overlap_last = last_ip.min(pixel_last_ip);
 
             if overlap_first <= overlap_last {
-                let paint_value = if self.categorical {
-                    // In categorical mode, paint the raw category value (no scaling)
-                    value
-                } else {
-                    // Calculate how many IPs from the CIDR block overlap with this pixel
-                    let overlap_count = overlap_last - overlap_first + 1;
-
-                    // Scale the value by the proportion of IPs in this pixel that come from the CIDR block
-                    (value as f64 * overlap_count as f64 / ips_per_pixel as f64) as i32
+                let paint_value = match self.value_mode {
+                    ValueMode::Categorical | ValueMode::Raw => value,
+                    ValueMode::Scaled => {
+                        let overlap_count = overlap_last - overlap_first + 1;
+                        (value as f64 * overlap_count as f64 / ips_per_pixel as f64) as i32
+                    }
                 };
 
                 if let Some((x, y)) = self.ip_to_xy(pixel_first_ip as u32) {
@@ -213,20 +246,18 @@ impl Heatmap {
                 }
             } else {
                 // Process as individual IP
-                let ip = if ip_str.chars().all(|c| c.is_ascii_digit()) {
-                    ip_str.parse::<u32>().context("Invalid IP as integer")?
+                let addr = if ip_str.chars().all(|c| c.is_ascii_digit()) {
+                    let ip = ip_str.parse::<u32>().context("Invalid IP as integer")?;
+                    Ipv4Addr::from(ip)
                 } else {
-                    let addr = Ipv4Addr::from_str(ip_str).context(format!(
+                    Ipv4Addr::from_str(ip_str).context(format!(
                         "Invalid IP address on line {}: {}",
                         line_num + 1,
                         ip_str
-                    ))?;
-                    u32::from(addr)
+                    ))?
                 };
 
-                if let Some((x, y)) = self.ip_to_xy(ip) {
-                    self.paint_pixel(x, y, value);
-                }
+                self.paint_address(&addr, value)?;
             }
         }
 
@@ -249,29 +280,32 @@ impl Heatmap {
         let size = (IMAGE_SIZE * IMAGE_SIZE * 4) as usize;
         let mut rgba_data = Vec::with_capacity(size);
 
-        if self.categorical {
-            for y in 0..IMAGE_SIZE {
-                for x in 0..IMAGE_SIZE {
-                    let value = self.buffer[y as usize][x as usize];
-                    if value < 0 {
-                        rgba_data.extend_from_slice(&[0, 0, 0, 0]);
-                    } else {
-                        let [r, g, b] = CATEGORICAL_PALETTE[value as usize % CATEGORICAL_PALETTE.len()];
-                        rgba_data.extend_from_slice(&[r, g, b, 255]);
+        match self.value_mode {
+            ValueMode::Categorical => {
+                for y in 0..IMAGE_SIZE {
+                    for x in 0..IMAGE_SIZE {
+                        let value = self.buffer[y as usize][x as usize];
+                        if value < 0 {
+                            rgba_data.extend_from_slice(&[0, 0, 0, 0]);
+                        } else {
+                            let [r, g, b] = CATEGORICAL_PALETTE[value as usize % CATEGORICAL_PALETTE.len()];
+                            rgba_data.extend_from_slice(&[r, g, b, 255]);
+                        }
                     }
                 }
             }
-        } else {
-            let domain = self.calculate_domain().map_err(|e| anyhow!(e))?;
-            for y in 0..IMAGE_SIZE {
-                for x in 0..IMAGE_SIZE {
-                    let value = self.buffer[y as usize][x as usize];
+            ValueMode::Raw | ValueMode::Scaled => {
+                let domain = self.calculate_domain().map_err(|e| anyhow!(e))?;
+                for y in 0..IMAGE_SIZE {
+                    for x in 0..IMAGE_SIZE {
+                        let value = self.buffer[y as usize][x as usize];
 
-                    if let Some(scaled) = domain.scale(value.into()) {
-                        let (r, g, b) = self.colour_scale.eval_continuous(scaled).as_tuple();
-                        rgba_data.extend_from_slice(&[r, g, b, 255]);
-                    } else {
-                        rgba_data.extend_from_slice(&[0, 0, 0, 0]);
+                        if let Some(scaled) = domain.scale(value.into()) {
+                            let (r, g, b) = self.colour_scale.eval_continuous(scaled).as_tuple();
+                            rgba_data.extend_from_slice(&[r, g, b, 255]);
+                        } else {
+                            rgba_data.extend_from_slice(&[0, 0, 0, 0]);
+                        }
                     }
                 }
             }
@@ -283,25 +317,28 @@ impl Heatmap {
     pub fn create_image(&self) -> Result<RgbaImage, &'static str> {
         let mut image = ImageBuffer::from_pixel(IMAGE_SIZE, IMAGE_SIZE, Rgba([0, 0, 0, 0]));
 
-        if self.categorical {
-            for y in 0..IMAGE_SIZE {
-                for x in 0..IMAGE_SIZE {
-                    let value = self.buffer[y as usize][x as usize];
-                    if value >= 0 {
-                        let [r, g, b] = CATEGORICAL_PALETTE[value as usize % CATEGORICAL_PALETTE.len()];
-                        image.put_pixel(x, y, Rgba([r, g, b, 255]));
+        match self.value_mode {
+            ValueMode::Categorical => {
+                for y in 0..IMAGE_SIZE {
+                    for x in 0..IMAGE_SIZE {
+                        let value = self.buffer[y as usize][x as usize];
+                        if value >= 0 {
+                            let [r, g, b] = CATEGORICAL_PALETTE[value as usize % CATEGORICAL_PALETTE.len()];
+                            image.put_pixel(x, y, Rgba([r, g, b, 255]));
+                        }
                     }
                 }
             }
-        } else {
-            let domain = self.calculate_domain()?;
-            for y in 0..IMAGE_SIZE {
-                for x in 0..IMAGE_SIZE {
-                    let value = self.buffer[y as usize][x as usize];
+            ValueMode::Raw | ValueMode::Scaled => {
+                let domain = self.calculate_domain()?;
+                for y in 0..IMAGE_SIZE {
+                    for x in 0..IMAGE_SIZE {
+                        let value = self.buffer[y as usize][x as usize];
 
-                    if let Some(scaled) = domain.scale(value.into()) {
-                        let (r, g, b) = self.colour_scale.eval_continuous(scaled).as_tuple();
-                        image.put_pixel(x, y, Rgba([r, g, b, 255]));
+                        if let Some(scaled) = domain.scale(value.into()) {
+                            let (r, g, b) = self.colour_scale.eval_continuous(scaled).as_tuple();
+                            image.put_pixel(x, y, Rgba([r, g, b, 255]));
+                        }
                     }
                 }
             }

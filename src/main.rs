@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{Parser, ValueEnum};
-use ip_heatmap::{Heatmap, DomainType};
+use ip_heatmap::{Heatmap, DomainType, ValueMode};
 
 #[derive(Clone, Debug, ValueEnum)]
 pub enum ColourScale {
@@ -61,8 +61,8 @@ pub struct Args {
     #[arg(long, help = "Colour scale to use", default_value = "magma")]
     colour_scale: ColourScale,
 
-    #[arg(long, help = "Categorical mode: discrete colours per category (comma-delimited input)")]
-    categorical: bool,
+    #[arg(long, help = "Value mode: scaled (default), raw, or categorical", default_value = "scaled")]
+    value_mode: ValueMode,
 }
 
 fn main() -> Result<()> {
@@ -101,7 +101,7 @@ fn main() -> Result<()> {
         args.accumulate,
         args.bits_per_pixel,
         colour_scale,
-        args.categorical,
+        args.value_mode,
     );
     heatmap.process_input()?;
     heatmap.save(&output_file)?;

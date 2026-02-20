@@ -8,7 +8,7 @@ const elements = {
     colourScaleSelect: document.getElementById('colour-scale'),
     bitsPerPixelInput: document.getElementById('bits-per-pixel'),
     accumulateCheckbox: document.getElementById('accumulate'),
-    categoricalCheckbox: document.getElementById('categorical'),
+    valueModeSelect: document.getElementById('value-mode'),
     generateBtn: document.getElementById('generate-btn'),
     downloadBtn: document.getElementById('download-btn'),
     canvas: document.getElementById('heatmap-canvas'),
@@ -125,7 +125,7 @@ async function generateHeatmap() {
         const colourScale = elements.colourScaleSelect.value;
         const bitsPerPixel = parseInt(elements.bitsPerPixelInput.value, 10);
         const accumulate = elements.accumulateCheckbox.checked;
-        const categorical = elements.categoricalCheckbox.checked;
+        const valueMode = elements.valueModeSelect.value;
         const dataSource = getSelectedDataSource();
 
         let inputData;
@@ -168,7 +168,7 @@ async function generateHeatmap() {
             accumulate,
             bitsPerPixel,
             colourScale,
-            categorical
+            valueMode
         );
 
         // Render to canvas

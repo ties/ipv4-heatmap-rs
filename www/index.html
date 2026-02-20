@@ -91,11 +91,13 @@
                     </label>
                 </div>
 
-                <div class="checkbox-group">
-                    <label>
-                        <input type="checkbox" id="categorical">
-                        Categorical mode
-                    </label>
+                <div class="input-group">
+                    <label for="value-mode">Value Mode:</label>
+                    <select id="value-mode">
+                        <option value="scaled" selected>Scaled</option>
+                        <option value="raw">Raw</option>
+                        <option value="categorical">Categorical</option>
+                    </select>
                 </div>
 
                 <button id="generate-btn" class="primary-btn">Generate Heatmap</button>
