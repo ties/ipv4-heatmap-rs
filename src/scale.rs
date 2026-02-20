@@ -72,13 +72,21 @@ impl ScaleDomain {
         }
     }
 
+    /// Uses log1p-style scaling: `ln(offset + 1) / ln(range + 1)` where
+    /// `offset = value - min`. This ensures that values just above `min_value`
+    /// map to near-zero rather than negative infinity, without requiring
+    /// `min_value > 0`.
     pub fn scale_logarithmic(&self, value: f64) -> Option<f64> {
-        if value < self.min_value {
+        if value <= self.min_value {
             return None;
+        }
+        if value >= self.max_value {
+            return Some(1.0);
         }
 
         let offset = value - self.min_value;
-        Some(offset.ln() / self.max_value.ln())
+        let range = self.max_value - self.min_value;
+        Some((offset + 1.0).ln() / (range + 1.0).ln())
     }
 }
 
@@ -125,27 +133,27 @@ mod tests {
     #[test]
     fn test_logarithmic_scale_min_max() {
         let domain = ScaleDomain::new(DomainType::Logarithmic, 1.0, 100.0).unwrap();
-        
-        // Min value produces -inf because ln(0) = -inf, this is expected behavior
-        let min_result = domain.scale_logarithmic(1.0).unwrap();
-        assert!(min_result.is_infinite() && min_result.is_sign_negative());
-        
-        // Max value should scale to (ln(max-min)/ln(max) = ln(99)/ln(100))
-        let result = domain.scale_logarithmic(100.0).unwrap();
-        let expected = (100.0_f64 - 1.0_f64).ln() / 100.0_f64.ln();
-        assert!((result - expected).abs() < 1e-10);
-        
-        // Test a value just above min_value
+
+        // Min value should return None (no data)
+        assert_eq!(domain.scale_logarithmic(1.0), None);
+
+        // Max value should clamp to 1.0
+        assert_eq!(domain.scale_logarithmic(100.0), Some(1.0));
+        assert_eq!(domain.scale_logarithmic(200.0), Some(1.0));
+
+        // Value just above min_value should be a small positive number
         let just_above_min = domain.scale_logarithmic(1.1).unwrap();
         assert!(just_above_min.is_finite());
-        assert!(just_above_min < 0.0); // Should be negative since ln(0.1) < 0
+        assert!(just_above_min > 0.0);
+        assert!(just_above_min < 0.1);
     }
 
     #[test]
     fn test_logarithmic_scale_out_of_range() {
         let domain = ScaleDomain::new(DomainType::Logarithmic, 10.0, 1000.0).unwrap();
-        
-        // Values below min_value should map to None
+
+        // Values at or below min_value should map to None
+        assert_eq!(domain.scale_logarithmic(10.0), None);
         assert_eq!(domain.scale_logarithmic(5.0), None);
         assert_eq!(domain.scale_logarithmic(9.99), None);
         assert_eq!(domain.scale_logarithmic(0.0), None);
@@ -154,18 +162,21 @@ mod tests {
     #[test]
     fn test_logarithmic_scale_interpolation() {
         let domain = ScaleDomain::new(DomainType::Logarithmic, 1.0, 1000.0).unwrap();
-        
-        // Test specific values
+
+        // ln(10-1+1) / ln(1000-1+1) = ln(10) / ln(1000) = 1/3
         let result_10 = domain.scale_logarithmic(10.0).unwrap();
-        let expected_10 = (10.0_f64 - 1.0_f64).ln() / 1000.0_f64.ln();
-        assert!((result_10 - expected_10).abs() < 1e-10);
-        
+        assert!((result_10 - 1.0 / 3.0).abs() < 1e-10);
+
+        // ln(100-1+1) / ln(1000-1+1) = ln(100) / ln(1000) = 2/3
         let result_100 = domain.scale_logarithmic(100.0).unwrap();
-        let expected_100 = (100.0_f64 - 1.0_f64).ln() / 1000.0_f64.ln();
-        assert!((result_100 - expected_100).abs() < 1e-10);
-        
+        assert!((result_100 - 2.0 / 3.0).abs() < 1e-10);
+
         // Values should increase with input
         assert!(result_10 < result_100);
+
+        // Output should be in [0, 1]
+        assert!(result_10 > 0.0 && result_10 < 1.0);
+        assert!(result_100 > 0.0 && result_100 < 1.0);
     }
 
     #[test]
