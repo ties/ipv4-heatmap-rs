@@ -280,7 +280,7 @@ impl Heatmap {
         Ok(rgba_data)
     }
 
-    fn create_image(&self) -> Result<RgbaImage, &'static str> {
+    pub fn create_image(&self) -> Result<RgbaImage, &'static str> {
         let mut image = ImageBuffer::from_pixel(IMAGE_SIZE, IMAGE_SIZE, Rgba([0, 0, 0, 0]));
 
         if self.categorical {
