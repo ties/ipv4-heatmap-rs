@@ -51,7 +51,18 @@ impl std::fmt::Display for ValueMode {
     }
 }
 
-const IMAGE_SIZE: u32 = 4096;
+/// Calculate the image side length for a given bits_per_pixel value.
+///
+/// The IPv4 address space has 2^32 addresses. Each pixel covers 2^bits_per_pixel addresses,
+/// so there are 2^(32 - bits_per_pixel) pixels total. These are arranged in a square via
+/// a Hilbert curve, giving a side length of 2^((32 - bits_per_pixel) / 2).
+///
+/// bits_per_pixel must be even (so that 32 - bits_per_pixel is even and the pixels form
+/// a perfect square) and at most 32.
+pub fn image_size_for_bpp(bits_per_pixel: u8) -> u32 {
+    let order = (32 - bits_per_pixel as u32) / 2;
+    1u32 << order
+}
 
 /// ColorBrewer2 Accent categorical palette (wraps for categories > 7)
 const CATEGORICAL_PALETTE: [[u8; 3]; 8] = [
@@ -77,6 +88,11 @@ pub struct Heatmap {
 }
 
 impl Heatmap {
+    /// Returns the side length of the output image in pixels.
+    pub fn image_size(&self) -> u32 {
+        image_size_for_bpp(self.bits_per_pixel)
+    }
+
     pub fn new(
         curve: scale::DomainType,
         min_value: Option<f64>,
@@ -91,7 +107,8 @@ impl Heatmap {
             ValueMode::Categorical => -1,
             ValueMode::Raw | ValueMode::Scaled => 0,
         };
-        let buffer = vec![vec![init_value; IMAGE_SIZE as usize]; IMAGE_SIZE as usize];
+        let size = image_size_for_bpp(bits_per_pixel) as usize;
+        let buffer = vec![vec![init_value; size]; size];
 
         Self {
             buffer,
@@ -277,13 +294,14 @@ impl Heatmap {
     }
 
     pub fn get_rgba_data(&self) -> Result<Vec<u8>> {
-        let size = (IMAGE_SIZE * IMAGE_SIZE * 4) as usize;
+        let image_size = self.image_size();
+        let size = (image_size * image_size * 4) as usize;
         let mut rgba_data = Vec::with_capacity(size);
 
         match self.value_mode {
             ValueMode::Categorical => {
-                for y in 0..IMAGE_SIZE {
-                    for x in 0..IMAGE_SIZE {
+                for y in 0..image_size {
+                    for x in 0..image_size {
                         let value = self.buffer[y as usize][x as usize];
                         if value < 0 {
                             rgba_data.extend_from_slice(&[0, 0, 0, 0]);
@@ -296,8 +314,8 @@ impl Heatmap {
             }
             ValueMode::Raw | ValueMode::Scaled => {
                 let domain = self.calculate_domain().map_err(|e| anyhow!(e))?;
-                for y in 0..IMAGE_SIZE {
-                    for x in 0..IMAGE_SIZE {
+                for y in 0..image_size {
+                    for x in 0..image_size {
                         let value = self.buffer[y as usize][x as usize];
 
                         if let Some(scaled) = domain.scale(value.into()) {
@@ -315,12 +333,13 @@ impl Heatmap {
     }
 
     pub fn create_image(&self) -> Result<RgbaImage, &'static str> {
-        let mut image = ImageBuffer::from_pixel(IMAGE_SIZE, IMAGE_SIZE, Rgba([0, 0, 0, 0]));
+        let image_size = self.image_size();
+        let mut image = ImageBuffer::from_pixel(image_size, image_size, Rgba([0, 0, 0, 0]));
 
         match self.value_mode {
             ValueMode::Categorical => {
-                for y in 0..IMAGE_SIZE {
-                    for x in 0..IMAGE_SIZE {
+                for y in 0..image_size {
+                    for x in 0..image_size {
                         let value = self.buffer[y as usize][x as usize];
                         if value >= 0 {
                             let [r, g, b] = CATEGORICAL_PALETTE[value as usize % CATEGORICAL_PALETTE.len()];
@@ -331,8 +350,8 @@ impl Heatmap {
             }
             ValueMode::Raw | ValueMode::Scaled => {
                 let domain = self.calculate_domain()?;
-                for y in 0..IMAGE_SIZE {
-                    for x in 0..IMAGE_SIZE {
+                for y in 0..image_size {
+                    for x in 0..image_size {
                         let value = self.buffer[y as usize][x as usize];
 
                         if let Some(scaled) = domain.scale(value.into()) {
@@ -352,5 +371,140 @@ impl Heatmap {
         image
             .save(filename)
             .context(format!("Failed to save image to {}", filename))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_image_size_for_bpp() {
+        // bpp=8:  2^((32-8)/2)  = 2^12 = 4096
+        assert_eq!(image_size_for_bpp(8), 4096);
+        // bpp=10: 2^((32-10)/2) = 2^11 = 2048
+        assert_eq!(image_size_for_bpp(10), 2048);
+        // bpp=12: 2^((32-12)/2) = 2^10 = 1024
+        assert_eq!(image_size_for_bpp(12), 1024);
+        // bpp=16: 2^((32-16)/2) = 2^8  = 256
+        assert_eq!(image_size_for_bpp(16), 256);
+        // bpp=24: 2^((32-24)/2) = 2^4  = 16
+        assert_eq!(image_size_for_bpp(24), 16);
+        // bpp=32: 2^0 = 1
+        assert_eq!(image_size_for_bpp(32), 1);
+    }
+
+    #[test]
+    fn test_image_size_times_bpp_covers_ipv4_space() {
+        // For every even bpp, total pixels * ips_per_pixel must equal 2^32
+        for bpp in (8..=32).step_by(2) {
+            let side = image_size_for_bpp(bpp) as u64;
+            let total_pixels = side * side;
+            let ips_per_pixel = 1u64 << bpp;
+            assert_eq!(
+                total_pixels * ips_per_pixel,
+                1u64 << 32,
+                "bpp={}: {}x{} * {} != 2^32",
+                bpp, side, side, ips_per_pixel
+            );
+        }
+    }
+
+    fn make_heatmap(bits_per_pixel: u8) -> Heatmap {
+        Heatmap::new(
+            DomainType::Linear,
+            None,
+            None,
+            true,
+            bits_per_pixel,
+            &colorous::MAGMA,
+            ValueMode::Scaled,
+        )
+    }
+
+    #[test]
+    fn test_heatmap_buffer_matches_image_size() {
+        for bpp in (8..=24).step_by(2) {
+            let hm = make_heatmap(bpp);
+            let expected = image_size_for_bpp(bpp) as usize;
+            assert_eq!(hm.buffer.len(), expected, "bpp={}: wrong row count", bpp);
+            assert_eq!(hm.buffer[0].len(), expected, "bpp={}: wrong col count", bpp);
+            assert_eq!(hm.image_size(), expected as u32, "bpp={}: image_size() wrong", bpp);
+        }
+    }
+
+    #[test]
+    fn test_created_image_dimensions() {
+        // Use bpp=24 (16x16) to keep the test fast
+        let mut hm = make_heatmap(24);
+        hm.process_input_from_string("10.0.0.0/8 1\n").unwrap();
+        let img = hm.create_image().unwrap();
+        assert_eq!(img.width(), 16);
+        assert_eq!(img.height(), 16);
+    }
+
+    #[test]
+    fn test_rgba_data_length() {
+        let mut hm = make_heatmap(24);
+        hm.process_input_from_string("10.0.0.0/8 1\n").unwrap();
+        let data = hm.get_rgba_data().unwrap();
+        // 16*16 pixels, 4 bytes each
+        assert_eq!(data.len(), 16 * 16 * 4);
+    }
+
+    #[test]
+    fn test_ip_maps_within_bounds_for_various_bpp() {
+        for bpp in (8..=24).step_by(2) {
+            let hm = make_heatmap(bpp);
+            let max_coord = hm.image_size() - 1;
+
+            // Test a few representative IPs
+            let test_ips: [u32; 4] = [
+                0,                  // 0.0.0.0
+                0x40_00_00_00,      // 64.0.0.0
+                0x80_00_00_00,      // 128.0.0.0
+                0xFF_FF_FF_FF,      // 255.255.255.255
+            ];
+
+            for ip in test_ips {
+                if let Some((x, y)) = hm.ip_to_xy(ip) {
+                    assert!(
+                        x <= max_coord && y <= max_coord,
+                        "bpp={}: IP {} mapped to ({}, {}), max is {}",
+                        bpp, ip, x, y, max_coord
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_paint_address_various_bpp() {
+        for bpp in [8, 12, 16, 24] {
+            let mut hm = make_heatmap(bpp);
+            // Painting should not panic for any bpp
+            hm.paint_address(&Ipv4Addr::new(10, 0, 0, 1), 1).unwrap();
+            hm.paint_address(&Ipv4Addr::new(192, 168, 1, 1), 5).unwrap();
+            hm.paint_address(&Ipv4Addr::new(255, 255, 255, 255), 1).unwrap();
+        }
+    }
+
+    #[test]
+    fn test_paint_cidr_various_bpp() {
+        for bpp in [8, 12, 16, 24] {
+            let mut hm = make_heatmap(bpp);
+            let cidr: Ipv4Net = "10.0.0.0/8".parse().unwrap();
+            hm.paint_cidr_range(&cidr, 1).unwrap();
+        }
+    }
+
+    #[test]
+    fn test_full_pipeline_small_bpp() {
+        // bpp=24 gives a tiny 16x16 image; run the full pipeline end-to-end
+        let mut hm = make_heatmap(24);
+        hm.process_input_from_string("10.0.0.0/8 1\n192.168.0.0/16 5\n").unwrap();
+        let img = hm.create_image().unwrap();
+        assert_eq!(img.width(), 16);
+        assert_eq!(img.height(), 16);
     }
 }

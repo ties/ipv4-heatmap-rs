@@ -1,5 +1,5 @@
 use wasm_bindgen::prelude::*;
-use crate::{Heatmap, DomainType, ValueMode};
+use crate::{Heatmap, DomainType, ValueMode, image_size_for_bpp};
 use colorous;
 
 #[wasm_bindgen(start)]
@@ -8,8 +8,8 @@ pub fn init_panic_hook() {
 }
 
 #[wasm_bindgen]
-pub fn get_image_size() -> u32 {
-    4096
+pub fn get_image_size(bits_per_pixel: u8) -> u32 {
+    image_size_for_bpp(bits_per_pixel)
 }
 
 #[wasm_bindgen]
@@ -30,16 +30,22 @@ pub fn generate_heatmap(
         _ => return Err(JsValue::from_str(&format!("Invalid curve type: {}. Must be 'linear' or 'logarithmic'", curve_type))),
     };
 
-    // Validate bits_per_pixel (minimum 8 for 4096x4096 image)
+    // Validate bits_per_pixel: must be even, and in range [8, 24]
     if bits_per_pixel < 8 {
         return Err(JsValue::from_str(&format!(
-            "bits_per_pixel must be at least 8 for a 4096x4096 image (got {}). Each pixel represents 2^bits_per_pixel IPs.",
+            "bits_per_pixel must be at least 8 (got {}). Each pixel represents 2^bits_per_pixel IPs.",
             bits_per_pixel
         )));
     }
     if bits_per_pixel > 24 {
         return Err(JsValue::from_str(&format!(
             "bits_per_pixel cannot exceed 24 (got {})",
+            bits_per_pixel
+        )));
+    }
+    if bits_per_pixel % 2 != 0 {
+        return Err(JsValue::from_str(&format!(
+            "bits_per_pixel must be even (got {})",
             bits_per_pixel
         )));
     }
