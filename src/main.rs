@@ -102,6 +102,7 @@ fn main() -> Result<()> {
         args.bits_per_pixel,
         colour_scale,
         args.value_mode,
+        None,
     );
     heatmap.process_input()?;
     heatmap.save(&output_file)?;

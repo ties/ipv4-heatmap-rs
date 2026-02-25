@@ -85,6 +85,7 @@ pub struct Heatmap {
     bits_per_pixel: u8,
     colour_scale: &'static Gradient,
     value_mode: ValueMode,
+    separator: Option<char>,
 }
 
 impl Heatmap {
@@ -101,6 +102,7 @@ impl Heatmap {
         bits_per_pixel: u8,
         colour_scale: &'static Gradient,
         value_mode: ValueMode,
+        separator: Option<char>,
     ) -> Self {
         // Use -1 as sentinel for "no data" in categorical mode
         let init_value = match value_mode {
@@ -119,6 +121,7 @@ impl Heatmap {
             bits_per_pixel,
             colour_scale,
             value_mode,
+            separator,
         }
     }
 
@@ -228,11 +231,17 @@ impl Heatmap {
     fn process_input_from_reader<R: BufRead>(&mut self, reader: R) -> Result<()> {
         for (line_num, line) in reader.lines().enumerate() {
             let line = line.context("Failed to read line")?;
-            let parts: Vec<&str> = line
-                .split(|c: char| c == ',' || c.is_whitespace())
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty())
-                .collect();
+            let parts: Vec<&str> = if let Some(sep) = self.separator {
+                line.split(sep)
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            } else {
+                line.split(|c: char| c == ',' || c.is_whitespace())
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            };
 
             if parts.is_empty() {
                 continue;
@@ -264,14 +273,31 @@ impl Heatmap {
             } else {
                 // Process as individual IP
                 let addr = if ip_str.chars().all(|c| c.is_ascii_digit()) {
-                    let ip = ip_str.parse::<u32>().context("Invalid IP as integer")?;
-                    Ipv4Addr::from(ip)
+                    match ip_str.parse::<u32>() {
+                        Ok(ip) => Ipv4Addr::from(ip),
+                        Err(e) => {
+                            log::warn!(
+                                "Failed to parse integer IP on line {}: {} - {}",
+                                line_num + 1,
+                                ip_str,
+                                e
+                            );
+                            continue;
+                        }
+                    }
                 } else {
-                    Ipv4Addr::from_str(ip_str).context(format!(
-                        "Invalid IP address on line {}: {}",
-                        line_num + 1,
-                        ip_str
-                    ))?
+                    match Ipv4Addr::from_str(ip_str) {
+                        Ok(addr) => addr,
+                        Err(e) => {
+                            log::warn!(
+                                "Failed to parse IP address on line {}: {} - {}",
+                                line_num + 1,
+                                ip_str,
+                                e
+                            );
+                            continue;
+                        }
+                    }
                 };
 
                 self.paint_address(&addr, value)?;
@@ -419,6 +445,7 @@ mod tests {
             bits_per_pixel,
             &colorous::MAGMA,
             ValueMode::Scaled,
+            None,
         )
     }
 

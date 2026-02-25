@@ -22,6 +22,7 @@ const elements = {
     dataInputGroup: document.getElementById('data-input-group'),
     dataFile: document.getElementById('data-file'),
     dataTextarea: document.getElementById('data-textarea'),
+    separatorSelect: document.getElementById('separator'),
 };
 
 async function initWasm() {
@@ -36,7 +37,8 @@ async function initWasm() {
         wasmReady = true;
 
         showLoading(false);
-        showInfo(`WASM module loaded. Image size: ${wasmModule.get_image_size()}x${wasmModule.get_image_size()}`);
+        const defaultBpp = parseInt(elements.bitsPerPixelInput.value, 10);
+        showInfo(`WASM module loaded. Image size: ${wasmModule.get_image_size(defaultBpp)}x${wasmModule.get_image_size(defaultBpp)}`);
 
         console.log('WASM module initialized successfully');
     } catch (error) {
@@ -127,6 +129,8 @@ async function generateHeatmap() {
         const accumulate = elements.accumulateCheckbox.checked;
         const valueMode = elements.valueModeSelect.value;
         const dataSource = getSelectedDataSource();
+        const separatorValue = elements.separatorSelect.value;
+        const separator = (dataSource === 'data' && separatorValue !== 'auto') ? separatorValue : null;
 
         let inputData;
         let infoLabel;
@@ -168,7 +172,8 @@ async function generateHeatmap() {
             accumulate,
             bitsPerPixel,
             colourScale,
-            valueMode
+            valueMode,
+            separator
         );
 
         // Render to canvas
@@ -186,8 +191,14 @@ async function generateHeatmap() {
 }
 
 function renderToCanvas(rgbaData) {
+    const bitsPerPixel = parseInt(elements.bitsPerPixelInput.value, 10);
+    const imageSize = wasmModule.get_image_size(bitsPerPixel);
+
+    // Resize canvas to match the image dimensions
+    elements.canvas.width = imageSize;
+    elements.canvas.height = imageSize;
+
     const ctx = elements.canvas.getContext('2d');
-    const imageSize = wasmModule.get_image_size();
 
     // Create ImageData from the RGBA byte array
     const imageData = new ImageData(

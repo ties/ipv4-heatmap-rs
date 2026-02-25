@@ -47,6 +47,17 @@
                         placeholder="Paste data here, e.g.&#10;1.0.0.0/24 5&#10;2.0.0.0/16 10&#10;&#10;Or for categorical mode:&#10;1.0.0.0/24,1&#10;2.0.0.0/16,2"
                         rows="6"
                     ></textarea>
+                    <div class="input-group">
+                        <label for="separator">Separator:</label>
+                        <select id="separator">
+                            <option value="auto" selected>Auto (comma + whitespace)</option>
+                            <option value=",">Comma</option>
+                            <option value="&#9;">Tab</option>
+                            <option value=";">Semicolon</option>
+                            <option value=" ">Space</option>
+                            <option value="|">Pipe</option>
+                        </select>
+                    </div>
                 </div>
 
                 <div class="input-group">

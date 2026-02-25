@@ -22,6 +22,7 @@ pub fn generate_heatmap(
     bits_per_pixel: u8,
     colour_scale: &str,
     value_mode: &str,
+    separator: Option<String>,
 ) -> Result<Vec<u8>, JsValue> {
     // Parse curve type
     let domain_type = match curve_type.to_lowercase().as_str() {
@@ -67,6 +68,9 @@ pub fn generate_heatmap(
     let value_mode: ValueMode = value_mode.parse()
         .map_err(|e: String| JsValue::from_str(&e))?;
 
+    // Parse separator
+    let sep_char = separator.and_then(|s| s.chars().next());
+
     // Create heatmap
     let mut heatmap = Heatmap::new(
         domain_type,
@@ -76,6 +80,7 @@ pub fn generate_heatmap(
         bits_per_pixel,
         gradient,
         value_mode,
+        sep_char,
     );
 
     // Process input
